@@ -1,26 +1,45 @@
-# Partner SE Technical Exercise Starter Repo
+# Chainguard Python Todo Application
 
-This repository contains a small Flask + Postgres todo application intended for use as a Partner SE technical exercise.
+A Flask + PostgreSQL todo application migrated to Chainguard Python
+Containers and Chainguard Libraries.
 
-## Scenario
+The original assessment is preserved in [EXERCISE.md](EXERCISE.md).
+Migration decisions, validation and AI usage are documented in
+[ASSESSMENT.md](ASSESSMENT.md).
 
-A customer has a small Python application that runs locally with Docker Compose. It works, but the application container and dependency setup are not aligned with their supply chain and container hardening goals.
+## Requirements
 
-The exercise for the candidate is to improve this application by:
+- Linux containers with Docker Engine and Docker Compose.
+- Valid Chainguard Libraries Python identity ID and token.
+- The application was tested on an Ubuntu 24.04 AMD64 Hyper-V VM.
 
-- migrating the application container to Chainguard Containers
-- configuring Python dependency installation to use Chainguard Libraries only
-- preserving a simple local developer workflow with Docker Compose
-- making practical, high-impact improvements without over-engineering the solution
+## Configure Libraries access
 
-## Timebox
+Create a credentials file outside the repository. Run the following in
+Bash, entering each credential at its prompt:
 
-- Expected: 90 minutes
-- Max: 2 hours
+```bash
+mkdir -p "$HOME/.config/chainguard-lab"
+read -r -p "Identity ID: " CHAINGUARD_PYTHON_IDENTITY_ID
+read -r -s -p "Token: " CHAINGUARD_PYTHON_TOKEN
+printf '\n'
+(
+  umask 077
+  printf 'machine libraries.cgr.dev\nlogin %s\npassword %s\n' \
+    "$CHAINGUARD_PYTHON_IDENTITY_ID" \
+    "$CHAINGUARD_PYTHON_TOKEN" \
+    > "$HOME/.config/chainguard-lab/python.netrc"
+)
+chmod 600 "$HOME/.config/chainguard-lab/python.netrc"
+unset CHAINGUARD_PYTHON_IDENTITY_ID CHAINGUARD_PYTHON_TOKEN
+```
 
-## Starter repo notes
+For another file location, set `CHAINGUARD_NETRC_PATH` to its absolute path.
 
-This starter intentionally includes several issues for the candidate to evaluate and improve. Examples include container image choice, build structure, dependency installation, runtime posture, and local orchestration behavior.
+Compose supplies this file as a BuildKit secret during dependency
+installation. It is not mounted into the running application.
+The build uses only `https://libraries.cgr.dev/python/simple/`, with no
+additional Python package index.
 
 ## Run locally
 
@@ -28,34 +47,54 @@ This starter intentionally includes several issues for the candidate to evaluate
 docker compose up --build
 ```
 
-Then open <http://localhost:8000>.
+Open http://localhost:8000 on the Docker host.
 
-## ⚠️ Chainguard Libraries Access
+To start in the background and wait for healthchecks:
 
-**Configuring Python dependency installation to use Chainguard Libraries is a required part of this exercise.**
+```bash
+docker compose up --build -d --wait --wait-timeout 90
+docker compose ps
+curl -i http://localhost:8000/healthz
+```
 
-If you have not been provided with a Chainguard Libraries token and identity ID, **please request one before starting**. You will need these credentials to complete the Libraries portion of the exercise. Do not submit without attempting this step — if access cannot be arranged, document what you would have done and why.
+For a remote VM, run this on your workstation, replacing the user and host:
 
-## Candidate deliverables
+```bash
+ssh -N -L 127.0.0.1:18000:127.0.0.1:8000 YOUR_USER@YOUR_VM_IP
+```
 
-Candidates should submit a link to their forked repository containing:
+Keep the SSH connection open and browse to http://localhost:18000.
 
-1. Updated code and configuration
-2. A write-up **committed to the repository** (Markdown preferred) describing:
-   - what they changed
-   - why they changed it
-   - what risks or issues were reduced
-   - tradeoffs they made
-   - what they would do next in a real customer engagement
-3. A brief note on AI tool usage — specifically: which tools you used, where in the exercise you used them, and how you distinguished AI-suggested changes from your own judgment. There is no penalty for using AI; transparency about how you used it is what matters.
+## Configuration and persistence
 
-## Interviewer notes
+The default PostgreSQL credentials are for this local exercise.
+PostgreSQL is reachable within the Compose network; its port is not
+published to the host. The web port binds to host loopback.
 
-A strong solution will usually:
+`DATABASE_URL` can be overridden through the environment or a local
+`.env` file. `.env.example` documents the default connection URL.
+An override must match the database's actual configuration.
 
-- use appropriate Chainguard Python image variants
-- separate build and runtime concerns sensibly
-- remove unnecessary packages and dependencies
-- avoid running as root
-- keep `docker compose up --build` working
-- clearly explain prioritization and tradeoffs
+Todo data persists in the named `postgres_data` volume.
+
+```bash
+docker compose down
+```
+
+This stops the application while retaining the database volume.
+
+## Troubleshooting
+
+```bash
+docker compose logs --tail=100 web db
+docker compose config --quiet
+docker compose --progress plain build --no-cache web
+```
+
+A missing or expired Libraries credential must be corrected before a
+fresh dependency installation can succeed. Build secrets do not
+automatically invalidate cached build steps; use `--no-cache` to test
+package retrieval again.
+
+The `/healthz` endpoint checks the web process. Loading `/` also exercises
+a database query.
